@@ -1,23 +1,33 @@
-# SSHFS Setup Guide (Arch Linux → Arch Linux)
+# SSHFS Setup Guide (Arch Linux ↔ Arch Linux)
 
-This guide explains how to mount a directory from a remote Arch Linux server as a local folder using SSHFS.
+This guide explains how to mount a directory from a remote Arch Linux server as a local folder using SSHFS and manage the mount with systemd.
 
 ---
 
-## Prerequisites
+# Overview
 
-* Arch Linux on both machines
-* SSH server running on the remote machine
-* Network connectivity between the machines
-* User account on the remote machine
+SSHFS (SSH Filesystem) allows you to access files on a remote machine as if they were stored locally.
 
-Verify SSH access first:
+Example:
 
-```bash
-ssh user@server
+```text
+Remote Server (hp-server)
+└── /home/sarang
+
+Local Machine
+└── ~/mnt/hp-server
 ```
 
-If this does not work, fix SSH connectivity before proceeding.
+After mounting, applications can read and write files in `~/mnt/hp-server` exactly like a normal directory.
+
+---
+
+# Prerequisites
+
+- Arch Linux on both machines
+- SSH server running on the remote machine
+- SSH access working
+- SSHFS installed locally
 
 ---
 
@@ -37,9 +47,38 @@ sshfs --version
 
 ---
 
-# 2. Configure SSH Key Authentication (Recommended)
+# 2. Configure SSH Access
 
-Generate a key pair if you do not already have one:
+Verify that SSH works:
+
+```bash
+ssh hp-server
+```
+
+If SSH is not yet configured, create an SSH config entry:
+
+```text
+# ~/.ssh/config
+
+Host hp-server
+    HostName 192.168.1.100
+    User sarang
+    IdentityFile ~/.ssh/id_ed25519
+```
+
+Test:
+
+```bash
+ssh hp-server
+```
+
+You should be able to log in successfully.
+
+---
+
+# 3. Configure SSH Keys (Recommended)
+
+Generate a key pair if necessary:
 
 ```bash
 ssh-keygen -t ed25519
@@ -48,253 +87,359 @@ ssh-keygen -t ed25519
 Copy the public key to the server:
 
 ```bash
-ssh-copy-id user@server
+ssh-copy-id hp-server
 ```
 
-Test login:
+Verify passwordless login:
 
 ```bash
-ssh user@server
-```
-
-You should be able to log in without entering a password.
-
----
-
-# 3. Create a Mount Point
-
-Choose a local directory where the remote files will appear:
-
-```bash
-mkdir -p ~/mnt/server
+ssh hp-server
 ```
 
 ---
 
-# 4. Mount the Remote Directory
+# 4. Create a Mount Point
 
-Mount the remote home directory:
+Create a local directory that will contain the remote files:
 
 ```bash
-sshfs user@server:/home/user ~/mnt/server
+mkdir -p ~/mnt/hp-server
 ```
 
-Example:
+---
+
+# 5. Mount the Remote Directory Manually
+
+Mount your remote home directory:
 
 ```bash
-sshfs alice@192.168.1.100:/home/alice ~/mnt/server
+sshfs hp-server:/home/sarang ~/mnt/hp-server
 ```
 
 Verify:
 
 ```bash
-ls ~/mnt/server
+ls ~/mnt/hp-server
 ```
 
-You should see files from the remote machine.
+You should see files from the server.
 
 ---
 
-# 5. Use SSH Config Aliases (Optional)
+# 6. Use the Mounted Directory
 
-Create or edit:
-
-```bash
-~/.ssh/config
-```
-
-Example:
-
-```text
-Host homeserver
-    HostName 192.168.1.100
-    User alice
-    IdentityFile ~/.ssh/id_ed25519
-```
-
-Test:
+Examples:
 
 ```bash
-ssh homeserver
+cd ~/mnt/hp-server
 ```
-
-Mount using the alias:
 
 ```bash
-sshfs homeserver:/home/alice ~/mnt/server
+cp local-file.txt ~/mnt/hp-server/
 ```
+
+```bash
+nano ~/mnt/hp-server/config.yaml
+```
+
+Any editor or file manager should work normally.
 
 ---
 
-# 6. Enable Automatic Reconnection
+# 7. Automatic Reconnection
 
-For more reliable mounts:
+For better reliability:
 
 ```bash
-sshfs homeserver:/home/alice ~/mnt/server \
+sshfs hp-server:/home/sarang ~/mnt/hp-server \
     -o reconnect \
     -o ServerAliveInterval=15 \
     -o ServerAliveCountMax=3
 ```
 
-These options help recover from temporary network interruptions.
+These options:
+
+- reconnect automatically after a disconnect
+- send keepalive packets every 15 seconds
+- detect dead connections after roughly 45 seconds
 
 ---
 
-# 7. Unmount the Filesystem
+# 8. Unmount the Filesystem
 
-Unmount when finished:
+Unmount manually:
 
 ```bash
-fusermount3 -u ~/mnt/server
+fusermount3 -u ~/mnt/hp-server
 ```
 
 Alternative:
 
 ```bash
-umount ~/mnt/server
+umount ~/mnt/hp-server
 ```
 
 ---
 
-# 8. Mount a Specific Directory
+# 9. Configure Automatic Mounting with systemd
 
-Instead of mounting an entire home directory:
+## Important
 
-```bash
-sshfs homeserver:/srv/projects ~/mnt/server
+For `.mount` units:
+
+> The filename must match the path specified in `Where=`.
+
+This is a common source of errors.
+
+For example:
+
+```text
+Where=/home/sarang/mnt/hp-server
 ```
 
-Only the `/srv/projects` directory will be visible locally.
+cannot be stored in:
+
+```text
+server.mount
+```
+
+because systemd will reject it.
 
 ---
 
-# 9. Mount Automatically with systemd
+## Determine the Correct Unit Name
 
-Create:
+Generate the required name:
 
 ```bash
-mkdir -p ~/.config/systemd/user
+systemd-escape --path --suffix=mount /home/sarang/mnt/hp-server
 ```
 
+Example output:
+
+```text
+home-sarang-mnt-hp\x2dserver.mount
+```
+
+This is the filename you must use.
+
+---
+
+## Create the Mount Unit
+
 Create:
 
-```bash
-~/.config/systemd/user/server.mount
+```text
+~/.config/systemd/user/home-sarang-mnt-hp\x2dserver.mount
 ```
 
 Contents:
 
 ```ini
 [Unit]
-Description=SSHFS Server Mount
+Description=SSHFS Mount for hp-server
+After=network-online.target
+Wants=network-online.target
 
 [Mount]
-What=alice@192.168.1.100:/home/alice
-Where=%h/mnt/server
+What=hp-server:/home/sarang
+Where=/home/sarang/mnt/hp-server
 Type=fuse.sshfs
-Options=reconnect,IdentityFile=%h/.ssh/id_ed25519,_netdev
+Options=reconnect,_netdev
 
 [Install]
 WantedBy=default.target
 ```
 
-Reload systemd:
+---
+
+## Reload systemd
 
 ```bash
 systemctl --user daemon-reload
 ```
 
-Enable and start the mount:
+---
+
+## Enable and Start
 
 ```bash
-systemctl --user enable --now server.mount
+systemctl --user enable --now home-sarang-mnt-hp\\x2dserver.mount
 ```
+
+---
+
+## Verify
 
 Check status:
 
 ```bash
-systemctl --user status server.mount
+systemctl --user status home-sarang-mnt-hp\\x2dserver.mount
+```
+
+Verify the filesystem:
+
+```bash
+findmnt ~/mnt/hp-server
+```
+
+or
+
+```bash
+mount | grep hp-server
 ```
 
 ---
 
-# Troubleshooting
+## Manual Control
 
-### Connection Refused
-
-Verify the SSH server is running:
+Mount:
 
 ```bash
-systemctl status sshd
-```
-
-Start it if necessary:
-
-```bash
-sudo systemctl enable --now sshd
-```
-
-### Permission Denied
-
-Check SSH authentication:
-
-```bash
-ssh user@server
-```
-
-Verify your public key exists in:
-
-```text
-~/.ssh/authorized_keys
-```
-
-### Mount Appears Empty
-
-Confirm the remote path exists:
-
-```bash
-ssh user@server
-ls /home/user
-```
-
-### Stale Mount
-
-Unmount and remount:
-
-```bash
-fusermount3 -u ~/mnt/server
-```
-
-```bash
-sshfs user@server:/home/user ~/mnt/server
-```
-
----
-
-# Useful Examples
-
-Mount remote home:
-
-```bash
-sshfs user@server:/home/user ~/mnt/server
-```
-
-Mount remote projects directory:
-
-```bash
-sshfs user@server:/srv/projects ~/mnt/projects
-```
-
-Mount using SSH alias:
-
-```bash
-sshfs homeserver:/home/alice ~/mnt/server
+systemctl --user start home-sarang-mnt-hp\\x2dserver.mount
 ```
 
 Unmount:
 
 ```bash
-fusermount3 -u ~/mnt/server
+systemctl --user stop home-sarang-mnt-hp\\x2dserver.mount
 ```
 
+Disable automatic mounting:
+
+```bash
+systemctl --user disable home-sarang-mnt-hp\\x2dserver.mount
+```
+
+---
+
+# 10. Troubleshooting
+
+## SSH Connection Fails
+
+Verify:
+
+```bash
+ssh hp-server
+```
+
+Check SSH daemon on the server:
+
+```bash
+sudo systemctl status sshd
+```
+
+Enable it:
+
+```bash
+sudo systemctl enable --now sshd
+```
+
+---
+
+## Permission Denied
+
+Check:
+
+```bash
+ssh hp-server
+```
+
+Verify your public key exists on the server:
+
+```text
+~/.ssh/authorized_keys
+```
+
+---
+
+## Mount Appears Empty
+
+Verify the remote path:
+
+```bash
+ssh hp-server
+ls /home/sarang
+```
+
+Confirm that the mounted directory contains files.
+
+---
+
+## Stale Mount
+
+Unmount and remount:
+
+```bash
+fusermount3 -u ~/mnt/hp-server
+```
+
+```bash
+systemctl --user restart home-sarang-mnt-hp\\x2dserver.mount
+```
+
+---
+
+## "Where= setting doesn't match unit name"
+
+Cause:
+
+```text
+Where=/home/sarang/mnt/hp-server
+```
+
+but the file is named:
+
+```text
+server.mount
+```
+
+Solution:
+
+Generate the correct filename:
+
+```bash
+systemd-escape --path --suffix=mount /home/sarang/mnt/hp-server
+```
+
+Rename the unit accordingly.
+
+---
+
+# Useful Commands
+
+Mount manually:
+
+```bash
+sshfs hp-server:/home/sarang ~/mnt/hp-server
+```
+
+Unmount:
+
+```bash
+fusermount3 -u ~/mnt/hp-server
+```
+
+Check mount:
+
+```bash
+findmnt ~/mnt/hp-server
+```
+
+Check systemd status:
+
+```bash
+systemctl --user status home-sarang-mnt-hp\\x2dserver.mount
+```
+
+Reload user units:
+
+```bash
+systemctl --user daemon-reload
+```
+
+Enable automatic mounting:
+
+```bash
+systemctl --user enable --now home-sarang-mnt-hp\\x2dserver.mount
+```
