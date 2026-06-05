@@ -2,26 +2,40 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 echo "=> Installing packages..."
-sudo pacman -S --noconfirm openssh git tmux neovim yazi tailscale
+sudo pacman -S --noconfirm openssh git tmux neovim yazi sshfs tailscale
 
 echo "=> Enabling services..."
 sudo systemctl enable --now sshd
 sudo systemctl enable --now tailscaled
 
-echo "=> Starting tailscale..."
-sudo tailscale up
+echo "=> Hardening SSH..."
+sudo sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sudo sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sudo systemctl restart sshd
 
-echo "=> Setting up directories"
+echo "=> Setting up directories..."
 mkdir -p ~/transfer
 mkdir -p ~/repos
+mkdir -p ~/mnt/server
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
 
-echo "=> Linking dotfiles"
+echo "=> Linking dotfiles..."
+ln -sf "$SCRIPT_DIR/dotfiles/bashrc" ~/.bashrc
+ln -sf "$SCRIPT_DIR/dotfiles/tmux.conf" ~/.tmux.conf
 
-ln -sf ~/setup/dotfiles/bashrc ~/.bashrc
-ln -sf ~/setup/dotfiles/tmux.conf ~/.tmux.conf
+echo "=> Cloning nvim config..."
+if [ -d ~/.config/nvim ]; then
+    echo "   ~/.config/nvim already exists, skipping."
+else
+    git clone https://github.com/sarang-kernel/nvim.git ~/.config/nvim
+fi
 
-mkdir -p ~/.config
-ln -sf ~/setup/dotfiles/nvim ~/.config/nvim
-
-echo "=> Done. Restart shell or run: source ~/.bashrc"
+echo ""
+echo "=> Done. Manual steps remaining:"
+echo "   1. Add SSH public keys to ~/.ssh/authorized_keys"
+echo "   2. Run: sudo tailscale up"
+echo "   3. Reload shell: source ~/.bashrc"

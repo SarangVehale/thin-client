@@ -1,14 +1,38 @@
-# Thin client setup
+# thin-client
 
-## Setup
+Reproducible setup for an Arch Linux remote dev server, accessible from any device via SSH + Tailscale.
 
-### Run bootstrap
+## Quick Start
 
-./setup/bootstrap.sh
+```bash
+git clone https://github.com/sarang-kernel/thin-client.git ~/setup
+~/setup/setup/bootstrap.sh
+```
 
-### Then :
+After bootstrap, complete the [manual steps](setup/README.md).
 
-- Add SSH keys manually
-- Login to Tailscale if needed
+## Architecture
 
-> Refer to setup/README.md for more details
+```
+iPad (Termius)
+└── SSH → tmux → nvim + yazi
+
+Local Machine
+├── SSH → server
+└── SSHFS → ~/mnt/server
+
+Server (sarang-hp / Arch Linux)
+├── OpenSSH
+├── Tailscale
+├── Git bare repos
+└── Dev environment (nvim, tmux, yazi)
+```
+
+## Docs
+
+- [Setup guide](setup/README.md) — post-bootstrap manual steps
+- [SSH keys](docs/ssh-keys.md) — key inventory, adding devices, troubleshooting
+- [Tailscale](docs/tailscale.md) — setup, device management, troubleshooting
+- [SSHFS](docs/sshfs-setup.md) — mounting server filesystem on local machine
+- [Git repos](docs/git-repos.md) — using server as a private Git remote
+- [Recovery](docs/recovery.md) — exact commands to restore after a wipe
